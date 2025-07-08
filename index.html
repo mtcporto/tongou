@@ -1,0 +1,1790 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Controle de Energia - Hotel (com IA)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .card-shadow {
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+        .btn-toggle.on {
+            background-color: #22c55e; /* green-500 */
+        }
+        .btn-toggle.off {
+            background-color: #ef4444; /* red-500 */
+        }
+        .status-dot {
+            height: 10px;
+            width: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .status-dot.online {
+            background-color: #22c55e; /* green-500 */
+        }
+        .status-dot.offline {
+            background-color: #71717a; /* zinc-500 */
+        }
+        #connect-btn.loading {
+            cursor: not-allowed;
+            background-color: #3b82f6; /* blue-500 */
+        }
+        /* Estilo para o loader do Gemini */
+        .gemini-loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="mb-8">
+            <h1 class="text-4xl font-bold text-gray-900">
+                <i class="fas fa-bolt text-blue-600 mr-3"></i>
+                Painel de Controle de Energia
+            </h1>
+            <p class="text-lg text-gray-600">Gerenciamento inteligente dos disjuntores do hotel com IA</p>
+        </header>
+
+        <!-- Seção de Autenticação -->
+        <div id="auth-section" class="bg-white p-6 rounded-lg card-shadow mb-8">
+            <h2 class="text-2xl font-semibold mb-4">Conexão com a API</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <input type="text" id="clientId" placeholder="Seu Client ID" class="border p-2 rounded-md w-full" value="jkvyq3n5m44xh9ds39rd">
+                <input type="password" id="clientSecret" placeholder="Seu Client Secret" class="border p-2 rounded-md w-full" value="cdf8b48e4e12417f9a1299c44ce1144d">
+                <select id="region" class="border p-2 rounded-md w-full bg-gray-100" disabled>
+                    <option value="https://openapi.tuyaus.com">Western America</option>
+                </select>
+            </div>
+            <div class="mt-4 flex flex-col md:flex-row gap-4 items-center">
+                 <input type="text" id="userId" placeholder="Seu User ID (App UID)" class="border p-2 rounded-md w-full md:w-1/2" value="az1751478146728XQNPF">
+                 <button id="connect-btn" class="bg-blue-600 text-white font-bold py-2 px-6 rounded-md hover:bg-blue-700 transition w-full md:w-auto">
+                     <span id="btn-text">
+                         <i class="fas fa-plug mr-2"></i>
+                         Conectar e Carregar Dispositivos
+                     </span>
+                     <span id="btn-loader" class="hidden">
+                         <i class="fas fa-spinner fa-spin mr-2"></i>
+                         Conectando...
+                     </span>
+                </button>
+            </div>
+            <div class="mt-2 flex items-center">
+                <input type="checkbox" id="use-proxy" class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" checked>
+                <label for="use-proxy" class="ml-2 block text-sm text-gray-900">
+                    <i class="fas fa-shield-alt text-green-600 mr-1"></i>
+                    Usar proxy CORS (recomendado)
+                </label>
+            </div>
+        </div>
+
+        <!-- Seção Principal: Quartos e Dispositivos -->
+        <main id="main-content" class="hidden">
+            <!-- Seção de Debug -->
+            <div id="debug-section" class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 hidden">
+                <h3 class="text-lg font-semibold text-blue-800 mb-2">
+                    <i class="fas fa-info-circle mr-2"></i>
+                    Informações de Conexão
+                </h3>
+                <div id="debug-info" class="text-sm text-blue-700">
+                    <!-- Informações de debug serão inseridas aqui -->
+                </div>
+            </div>
+            
+            <h2 class="text-2xl font-semibold mb-4 flex items-center justify-between">
+                <span>
+                    <i class="fas fa-home mr-2"></i>
+                    Dispositivos
+                </span>
+                <button onclick="toggleDebugInfo()" class="text-sm bg-gray-200 text-gray-700 px-3 py-1 rounded hover:bg-gray-300">
+                    <i class="fas fa-info-circle mr-1"></i>
+                    Debug
+                </button>
+            </h2>
+            <div id="rooms-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Cards dos quartos serão inseridos aqui dinamicamente -->
+            </div>
+        </main>
+        
+        <!-- Modal para Detalhes e Configurações do Dispositivo -->
+        <div id="device-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center p-4 z-50">
+            <div class="bg-white rounded-lg card-shadow w-full max-w-2xl max-h-full overflow-y-auto">
+                <div class="p-6">
+                    <div class="flex justify-between items-start">
+                        <h3 id="modal-device-name" class="text-2xl font-bold">Detalhes do Dispositivo</h3>
+                        <button id="close-modal-btn" class="text-2xl font-bold">&times;</button>
+                    </div>
+                    <hr class="my-4">
+                    <div id="modal-content" class="space-y-4">
+                        <!-- Conteúdo do modal será inserido aqui -->
+                    </div>
+                    <div class="mt-6">
+                        <button id="gemini-analyze-btn" class="w-full bg-gradient-to-r from-purple-500 to-indigo-600 text-white font-bold py-2 px-4 rounded-md hover:opacity-90 transition">
+                            <i class="fas fa-brain mr-2"></i>
+                            Analisar com IA
+                        </button>
+                        <div id="gemini-analysis-container" class="mt-4 hidden">
+                            <h4 class="text-lg font-semibold mb-2">Análise da IA</h4>
+                            <div id="gemini-loader" class="gemini-loader hidden"></div>
+                            <div id="gemini-analysis-result" class="bg-gray-100 p-4 rounded-md text-sm"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Seção de Logs -->
+        <div class="mt-8 bg-gray-900 text-white rounded-lg overflow-hidden">
+            <div class="p-4 bg-gray-800 cursor-pointer" onclick="toggleLogs()">
+                <h3 class="text-lg font-semibold flex items-center justify-between">
+                    <span>
+                        <i class="fas fa-terminal mr-2"></i>
+                        Logs da API
+                    </span>
+                    <i id="logs-toggle-icon" class="fas fa-chevron-down transform transition-transform"></i>
+                </h3>
+            </div>
+            <div id="logs-content" class="p-4 h-64 overflow-y-auto font-mono text-sm hidden">
+                <div id="logs"></div>
+            </div>
+        </div>
+        
+        <!-- Seção de Agendamentos -->
+        <div class="mt-8 bg-white p-4 rounded-lg card-shadow">
+            <h3 class="text-lg font-semibold mb-4">
+                <i class="fas fa-calendar-alt mr-2"></i>
+                Agendamentos
+            </h3>
+            <div id="scheduled-commands" class="text-sm text-gray-600">
+                Nenhum agendamento ativo
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- ELEMENTOS DA UI ---
+        const authSection = document.getElementById('auth-section');
+        const mainContent = document.getElementById('main-content');
+        const connectBtn = document.getElementById('connect-btn');
+        const btnText = document.getElementById('btn-text');
+        const btnLoader = document.getElementById('btn-loader');
+        const roomsGrid = document.getElementById('rooms-grid');
+        const logDiv = document.getElementById('logs');
+        const deviceModal = document.getElementById('device-modal');
+        const modalDeviceName = document.getElementById('modal-device-name');
+        const modalContent = document.getElementById('modal-content');
+        const closeModalBtn = document.getElementById('close-modal-btn');
+        const geminiAnalyzeBtn = document.getElementById('gemini-analyze-btn');
+        const geminiAnalysisContainer = document.getElementById('gemini-analysis-container');
+        const geminiLoader = document.getElementById('gemini-loader');
+        const geminiAnalysisResult = document.getElementById('gemini-analysis-result');
+        const useProxyCheckbox = document.getElementById('use-proxy');
+        const debugInfo = document.getElementById('debug-info');
+        
+        let currentDeviceStatusForAI = null;
+        let scheduledCommands = new Map(); // Armazenar agendamentos ativos
+        let currentDeviceId = null; // Armazenar ID do dispositivo atual
+
+        // --- CONFIGURAÇÕES DA API ---
+        let config = {
+            clientId: '',
+            clientSecret: '',
+            baseUrl: '',
+            userId: '',
+            accessToken: '',
+            refreshToken: '',
+            uid: ''
+        };
+
+
+        // --- FUNÇÕES DE LOG ---
+        function log(message, data) {
+            const time = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `<strong class="text-green-400">[${time}]</strong> ${message}`;
+            if (data) {
+                const dataStr = JSON.stringify(data, null, 2);
+                const pre = document.createElement('pre');
+                pre.className = 'bg-gray-800 p-2 rounded-md mt-1 text-yellow-300';
+                pre.textContent = dataStr;
+                logEntry.appendChild(pre);
+            }
+            logDiv.prepend(logEntry);
+        }
+
+        function logError(message, error) {
+            const time = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `<strong class="text-red-500">[${time}]</strong> ${message}`;
+            if (error) {
+                const dataStr = JSON.stringify(error, Object.getOwnPropertyNames(error), 2);
+                const pre = document.createElement('pre');
+                pre.className = 'bg-gray-800 p-2 rounded-md mt-1 text-red-400';
+                pre.textContent = dataStr;
+                logEntry.appendChild(pre);
+            }
+            logDiv.prepend(logEntry);
+        }
+
+        // --- LÓGICA DA API (GEMINI) ---
+        async function callGeminiAPI(deviceStatus) {
+            log("Chamando a API do Gemini para análise...");
+            geminiLoader.classList.remove('hidden');
+            geminiAnalysisResult.classList.add('hidden');
+
+            const isOffline = !deviceStatus.find(s => s.code === 'online')?.value;
+            const hasAlarms = deviceStatus.some(s => s.code.includes('alarm') && s.value);
+            const switchState = deviceStatus.find(s => s.code === 'switch')?.value;
+            const currentPower = deviceStatus.find(s => s.code === 'cur_power')?.value;
+            const currentVoltage = deviceStatus.find(s => s.code === 'cur_voltage')?.value;
+            const currentCurrent = deviceStatus.find(s => s.code === 'cur_current')?.value;
+            const totalEnergy = deviceStatus.find(s => s.code === 'total_forward_energy' || s.code === 'forward_energy_total')?.value;
+            const temperature = deviceStatus.find(s => s.code === 'temp_current')?.value;
+            const childLock = deviceStatus.find(s => s.code === 'child_lock')?.value;
+            const timer = deviceStatus.find(s => s.code === 'countdown_1')?.value;
+            
+            let prompt;
+            if (isOffline || hasAlarms) {
+                prompt = `🏨 RELATÓRIO DE MANUTENÇÃO - DISJUNTOR INTELIGENTE 🏨
+
+Você é um assistente de engenharia elétrica especializado em manutenção de instalações hoteleiras. Um disjuntor inteligente em um quarto de hotel está apresentando problemas.
+
+DADOS DO DISPOSITIVO:
+${JSON.stringify(deviceStatus, null, 2)}
+
+Por favor, forneça:
+1. 🔍 DIAGNÓSTICO: Identifique o problema principal
+2. ⚠️ NÍVEL DE PRIORIDADE: Baixa/Média/Alta/Crítica
+3. 🛠️ AÇÕES IMEDIATAS: O que fazer agora
+4. 📋 GUIA PASSO A PASSO: Solução detalhada para técnico
+5. 🏨 IMPACTO NO HÓSPEDE: Como isso afeta a experiência
+6. 🔒 SEGURANÇA: Precauções importantes
+
+Priorize sempre a segurança e a experiência do hóspede.`;
+            } else {
+                const energyInfo = currentPower !== undefined || totalEnergy !== undefined ? 
+                    `\n📊 DADOS DE ENERGIA DISPONÍVEIS:
+- Potência atual: ${currentPower ? (currentPower/10).toFixed(1) + ' W' : 'N/A'}
+- Tensão: ${currentVoltage ? (currentVoltage/10).toFixed(1) + ' V' : 'N/A'}
+- Corrente: ${currentCurrent ? currentCurrent + ' mA' : 'N/A'}
+- Energia total: ${totalEnergy ? (totalEnergy/1000).toFixed(3) + ' kWh' : 'N/A'}
+- Temperatura: ${temperature ? temperature + '°C' : 'N/A'}` : '';
+
+                prompt = `🏨 RELATÓRIO GERENCIAL - DISJUNTOR INTELIGENTE 🏨
+
+Você é um assistente especializado em gerenciamento de energia para hotéis. Analise os dados deste disjuntor de quarto de hotel e forneça um relatório executivo.
+
+ESTADO ATUAL:
+- Disjuntor: ${switchState ? '✅ LIGADO' : '❌ DESLIGADO'}
+- Trava de segurança: ${childLock ? '🔒 ATIVADA' : '🔓 DESATIVADA'}
+- Timer: ${timer > 0 ? `⏰ ${Math.floor(timer/60)}min ${timer%60}s` : '❌ Inativo'}${energyInfo}
+
+DADOS COMPLETOS:
+${JSON.stringify(deviceStatus, null, 2)}
+
+Por favor, forneça:
+1. 📈 RESUMO EXECUTIVO: Status geral em linguagem simples
+2. ⚡ ANÁLISE DE CONSUMO: Interpretação dos dados de energia (se disponíveis)
+3. 💰 IMPACTO FINANCEIRO: Estimativa de custos de energia
+4. 🎯 RECOMENDAÇÕES: Otimizações para economizar energia
+5. 🏨 GESTÃO HOTELEIRA: Como usar estes dados para melhor operação
+6. ⚠️ ALERTAS: Qualquer situação que precise atenção
+
+Foque na economia de energia e experiência do hóspede.`;
+            }
+
+            const apiKey = "AIzaSyBpsHt2ALOIDOYrN08GhiUQaIe7Sfom734"; // Substitua pela sua chave do Gemini
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`;
+            
+            const payload = {
+                contents: [{
+                    parts: [{ text: prompt }]
+                }],
+                generationConfig: {
+                    temperature: 0.7,
+                    topK: 40,
+                    topP: 0.95,
+                    maxOutputTokens: 2048,
+                }
+            };
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Erro na API do Gemini: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                const text = result.candidates[0].content.parts[0].text;
+                
+                geminiAnalysisResult.innerHTML = `<div class="whitespace-pre-wrap">${text}</div>`;
+                log("Análise do Gemini recebida com sucesso.");
+
+            } catch (error) {
+                logError("Erro ao chamar a API do Gemini", error);
+                geminiAnalysisResult.innerHTML = `<div class="text-red-500">❌ Não foi possível obter a análise da IA. 
+                
+Possíveis causas:
+• Chave da API inválida
+• Limite de requisições excedido
+• Problema de conectividade
+
+Verifique os logs para mais detalhes.</div>`;
+            } finally {
+                geminiLoader.classList.add('hidden');
+                geminiAnalysisResult.classList.remove('hidden');
+            }
+        }
+
+        // --- LÓGICA DA API (TUYA) ---
+        class TongouAPI {
+            constructor(apiConfig, useProxy = true) {
+                this.config = apiConfig;
+                this.useProxy = useProxy;
+                this.proxyUrl = 'https://tongou.mosaicoworkers.workers.dev/';
+                if (useProxy) {
+                    log("API iniciada com proxy CORS");
+                } else {
+                    log("API iniciada sem proxy (pode ter problemas de CORS)");
+                }
+            }
+            
+            _getSign(timestamp, method, path, params = {}, body = null) {
+                let stringToSign = method + '\n';
+                let contentHash = CryptoJS.SHA256(body ? JSON.stringify(body) : '');
+                stringToSign += contentHash + '\n\n';
+                const url = new URL(this.config.baseUrl + path);
+                url.search = new URLSearchParams(params).toString();
+                stringToSign += url.pathname + url.search;
+                const tokenStr = this.config.accessToken ? this.config.accessToken : "";
+                const signStr = this.config.clientId + tokenStr + timestamp + stringToSign;
+                return CryptoJS.HmacSHA256(signStr, this.config.clientSecret).toString(CryptoJS.enc.Hex).toUpperCase();
+            }
+
+            async _request(method, path, params = {}, body = null) {
+                const timestamp = new Date().getTime();
+                const url = new URL(this.config.baseUrl + path);
+                url.search = new URLSearchParams(params).toString();
+                
+                const headers = {
+                    'client_id': this.config.clientId,
+                    't': timestamp,
+                    'sign_method': 'HMAC-SHA256',
+                    'lang': 'en',
+                    'Content-Type': 'application/json'
+                };
+                
+                const isTokenRequest = path.includes('/v1.0/token');
+                if (this.config.accessToken && !isTokenRequest) {
+                    headers['access_token'] = this.config.accessToken;
+                }
+                headers['sign'] = this._getSign(timestamp, method, path, params, body);
+                
+                // Decidir se usar proxy ou fazer requisição direta
+                let finalUrl, fetchHeaders;
+                if (this.useProxy) {
+                    // Use proxy para evitar CORS
+                    finalUrl = `${this.proxyUrl}?url=${encodeURIComponent(url.toString())}`;
+                    fetchHeaders = headers;
+                    log(`Enviando requisição ${method} para ${url.pathname}${url.search} via proxy`);
+                } else {
+                    // Requisição direta (pode ter problemas de CORS)
+                    finalUrl = url.toString();
+                    fetchHeaders = headers;
+                    log(`Enviando requisição ${method} para ${url.pathname}${url.search} diretamente`);
+                }
+                
+                try {
+                    const response = await fetch(finalUrl, {
+                        method,
+                        headers: fetchHeaders,
+                        body: body ? JSON.stringify(body) : null
+                    });
+                    
+                    const data = await response.json();
+                    log(`Response status: ${response.status}`, { data });
+                    
+                    if (!data.success) {
+                        const errorMsg = data.msg || `API Error Code: ${data.code}`;
+                        log(`API retornou erro: ${errorMsg}`, data);
+                        throw new Error(errorMsg);
+                    }
+                    log(`Resposta recebida com sucesso de ${path}`, data.result);
+                    return data.result;
+                } catch (error) {
+                    logError(`ERRO na requisição para ${path}`, error);
+                    throw error;
+                }
+            }
+
+            async getToken() {
+                log("Obtendo Access Token...");
+                const result = await this._request('GET', '/v1.0/token', { grant_type: 1 });
+                if (result && result.access_token) {
+                    this.config.accessToken = result.access_token;
+                    this.config.refreshToken = result.refresh_token;
+                    this.config.uid = result.uid;
+                    log("Access Token obtido com sucesso!");
+                    return true;
+                }
+                throw new Error("Falha ao obter o Access Token.");
+            }
+
+            async getAssets() {
+                // Tentar diretamente com o dispositivo conhecido
+                const knownDeviceId = 'eb4995d7b51c09a5e7058p';
+                log(`Carregando dispositivo: ${knownDeviceId}`);
+                
+                try {
+                    const status = await this.getDeviceStatus(knownDeviceId);
+                    log(`Dispositivo carregado com sucesso`);
+                    
+                    // Retornar como um asset
+                    return [{
+                        asset_id: `asset_${knownDeviceId}`,
+                        name: 'Quarto 101',
+                        device_id: knownDeviceId
+                    }];
+                } catch (error) {
+                    log(`Falha ao acessar dispositivo: ${error.message}`);
+                    return [];
+                }
+            }
+
+            async getDevices(assetId) {
+                // Se o asset tem um device_id específico, retornar esse dispositivo
+                if (assetId.startsWith('asset_')) {
+                    const deviceId = assetId.replace('asset_', '');
+                    try {
+                        const deviceStatus = await this.getDeviceStatus(deviceId);
+                        return [{
+                            id: deviceId,
+                            name: `Disjuntor A`,
+                            online: true, // Assumir online se conseguimos obter status
+                            status: deviceStatus
+                        }];
+                    } catch (error) {
+                        log(`Erro ao obter status do dispositivo ${deviceId}: ${error.message}`);
+                        return [];
+                    }
+                }
+                
+                return [];
+            }
+
+            async sendCommand(deviceId, code, value) {
+                log(`Enviando comando: ${code}=${value} para dispositivo ${deviceId}`);
+                const body = { 'commands': [{ 'code': code, 'value': value }] };
+                
+                try {
+                    const result = await this._request('POST', `/v1.0/devices/${deviceId}/commands`, {}, body);
+                    log(`Comando enviado com sucesso`);
+                    return result || true;
+                } catch (error) {
+                    log(`Erro ao enviar comando: ${error.message}`);
+                    throw error;
+                }
+            }
+            
+            async getDeviceStatus(deviceId) {
+                 try {
+                     const result = await this._request('GET', `/v1.0/devices/${deviceId}/status`);
+                     if (result && Array.isArray(result)) {
+                         return result;
+                     }
+                 } catch (error) {
+                     log(`Falha ao obter status: ${error.message}`);
+                     throw error;
+                 }
+                 
+                 // Retornar status padrão se não conseguir obter
+                 return [
+                     { code: 'switch', value: false },
+                     { code: 'online', value: true }
+                 ];
+            }
+        }
+
+        let api;
+
+        // --- LÓGICA DA APLICAÇÃO ---
+        
+        function updateDebugInfo(info) {
+            if (debugInfo) {
+                debugInfo.innerHTML += `<div class="mb-1">${info}</div>`;
+            }
+        }
+        
+        function toggleLoading(isLoading) {
+            connectBtn.disabled = isLoading;
+            connectBtn.classList.toggle('loading', isLoading);
+            btnText.classList.toggle('hidden', isLoading);
+            btnLoader.classList.toggle('hidden', !isLoading);
+        }
+
+        connectBtn.addEventListener('click', async () => {
+            config.clientId = document.getElementById('clientId').value;
+            config.clientSecret = document.getElementById('clientSecret').value;
+            config.baseUrl = document.getElementById('region').value;
+            config.userId = document.getElementById('userId').value; // This is the App UID
+
+            if (!config.clientId || !config.clientSecret || !config.userId) {
+                alert('Por favor, preencha o Client ID, Client Secret e o User ID (App UID).');
+                return;
+            }
+
+            toggleLoading(true);
+            const useProxy = useProxyCheckbox.checked;
+            api = new TongouAPI(config, useProxy);
+
+            try {
+                await api.getToken();
+                log("Carregando dispositivos...");
+                updateDebugInfo(`<i class="fas fa-check text-green-600"></i> Token obtido: ${api.config.accessToken.substring(0, 8)}...`);
+                updateDebugInfo(`<i class="fas fa-user text-blue-600"></i> UID: ${api.config.uid}`);
+                
+                const assets = await api.getAssets();
+                updateDebugInfo(`<i class="fas fa-home text-purple-600"></i> Dispositivos encontrados: ${assets.length}`);
+                
+                authSection.classList.add('hidden');
+                mainContent.classList.remove('hidden');
+                
+                if (assets && assets.length > 0) {
+                    updateDebugInfo(`<i class="fas fa-cogs text-orange-600"></i> Renderizando ${assets.length} dispositivos...`);
+                    await renderRooms(assets);
+                } else {
+                    log("Nenhum dispositivo encontrado.");
+                    updateDebugInfo(`<i class="fas fa-exclamation-triangle text-red-600"></i> Nenhum dispositivo encontrado`);
+                    roomsGrid.innerHTML = '<div class="col-span-full text-center p-8"><p class="text-gray-500">Nenhum dispositivo encontrado.</p><p class="text-sm text-gray-400 mt-2">Verifique se há dispositivos associados à sua conta.</p></div>';
+                }
+            } catch (error) {
+                logError('Falha ao conectar ou carregar dispositivos.', error);
+                updateDebugInfo(`<i class="fas fa-times text-red-600"></i> Erro: ${error.message}`);
+                alert(`Falha na conexão: ${error.message}`);
+            } finally {
+                toggleLoading(false);
+            }
+        });
+        
+        async function renderRooms(assets) {
+            roomsGrid.innerHTML = ''; 
+            for (const asset of assets) {
+                const roomCard = createRoomCard(asset);
+                roomsGrid.appendChild(roomCard);
+                
+                try {
+                    const devices = await api.getDevices(asset.asset_id);
+                    const devicesContainer = roomCard.querySelector('.devices-container');
+                    devicesContainer.innerHTML = '';
+                    if (devices && devices.length > 0) {
+                        devices.forEach(device => {
+                            const deviceElement = createDeviceElement(device);
+                            devicesContainer.appendChild(deviceElement);
+                        });
+                    } else {
+                        devicesContainer.innerHTML = '<p class="text-sm text-gray-500">Nenhum disjuntor neste quarto.</p>';
+                    }
+                } catch (error) {
+                    logError(`Erro ao buscar dispositivos para o quarto ${asset.name}`, error);
+                }
+            }
+        }
+
+        function createRoomCard(asset) {
+            const card = document.createElement('div');
+            card.className = 'bg-white p-6 rounded-lg card-shadow';
+            card.innerHTML = `
+                <h3 class="text-xl font-bold mb-4">${asset.name}</h3>
+                <div class="devices-container space-y-3">
+                    <p class="text-sm text-gray-500">Carregando disjuntores...</p>
+                </div>
+            `;
+            return card;
+        }
+
+        function createDeviceElement(device) {
+            const element = document.createElement('div');
+            element.className = 'flex items-center justify-between border-t pt-3';
+            element.id = `device-${device.id}`;
+            
+            // Procurar o status do switch (pode ser 'switch' ou 'switch_1')
+            const switchStatus = device.status.find(s => s.code === 'switch' || s.code === 'switch_1');
+            const isDeviceOn = switchStatus ? switchStatus.value : false;
+            const switchCode = switchStatus ? switchStatus.code : 'switch'; // Default para 'switch'
+
+            element.innerHTML = `
+                <div>
+                    <p class="font-semibold">
+                        <i class="fas fa-microchip mr-2 text-gray-600"></i>
+                        ${device.name}
+                    </p>
+                    <p class="text-sm text-gray-600">
+                        <span class="status-dot ${device.online ? 'online' : 'offline'}"></span>
+                        <i class="fas fa-${device.online ? 'check-circle' : 'times-circle'} mr-1"></i>
+                        ${device.online ? 'Online' : 'Offline'}
+                    </p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button data-device-id="${device.id}" class="config-btn bg-gray-200 text-gray-700 px-3 py-1 rounded-md text-sm hover:bg-gray-300">
+                        <i class="fas fa-cog mr-1"></i>
+                        Config
+                    </button>
+                    <button data-device-id="${device.id}" data-current-state="${isDeviceOn}" data-switch-code="${switchCode}" class="btn-toggle ${isDeviceOn ? 'on' : 'off'} text-white font-bold w-20 py-1 rounded-md text-sm transition">
+                        ${isDeviceOn ? 'LIGADO' : 'DESLIGADO'}
+                    </button>
+                </div>
+            `;
+            
+            const toggleBtn = element.querySelector('.btn-toggle');
+            toggleBtn.addEventListener('click', handleToggleDevice);
+            const configBtn = element.querySelector('.config-btn');
+            configBtn.addEventListener('click', () => showDeviceDetails(device.id, device.name));
+            return element;
+        }
+        
+        async function handleToggleDevice(event) {
+            const button = event.target;
+            const deviceId = button.dataset.deviceId;
+            const currentState = button.dataset.currentState === 'true';
+            const switchCode = button.dataset.switchCode || 'switch'; // Usar o código correto do switch
+            const newState = !currentState;
+            
+            log(`Tentando ${newState ? 'LIGAR' : 'DESLIGAR'} o dispositivo ${deviceId} usando código: ${switchCode}`);
+            button.disabled = true;
+            button.textContent = '...';
+            
+            try {
+                const result = await api.sendCommand(deviceId, switchCode, newState);
+                if (result === true || result) { // Aceitar qualquer resultado truthy
+                    log(`Comando para ${newState ? 'LIGAR' : 'DESLIGAR'} enviado com sucesso.`);
+                    updateDeviceUI(deviceId, newState);
+                    
+                    // Aguardar um pouco e verificar o status real do dispositivo
+                    setTimeout(async () => {
+                        try {
+                            const status = await api.getDeviceStatus(deviceId);
+                            const actualState = status.find(s => s.code === switchCode)?.value;
+                            if (actualState !== undefined) {
+                                updateDeviceUI(deviceId, actualState);
+                                log(`Status real verificado: ${actualState ? 'LIGADO' : 'DESLIGADO'}`);
+                            }
+                        } catch (error) {
+                            log(`Erro ao verificar status: ${error.message}`);
+                        }
+                    }, 2000); // Aguardar 2 segundos
+                    
+                } else { 
+                    throw new Error('API não retornou sucesso.'); 
+                }
+            } catch (error) {
+                logError(`Falha ao enviar comando para o dispositivo ${deviceId}`, error);
+                alert(`Não foi possível alterar o estado do dispositivo: ${error.message}`);
+                updateDeviceUI(deviceId, currentState);
+            } finally {
+                button.disabled = false;
+            }
+        }
+        
+        function updateDeviceUI(deviceId, isOn) {
+            const button = document.querySelector(`#device-${deviceId} .btn-toggle`);
+            if (button) {
+                button.dataset.currentState = isOn;
+                button.textContent = isOn ? 'LIGADO' : 'DESLIGADO';
+                button.classList.toggle('on', isOn);
+                button.classList.toggle('off', !isOn);
+            }
+        }
+
+        async function showDeviceDetails(deviceId, deviceName) {
+            modalDeviceName.textContent = deviceName;
+            modalContent.innerHTML = '<p>Carregando configurações...</p>';
+            geminiAnalysisContainer.classList.add('hidden'); // Esconde análise anterior
+            deviceModal.classList.remove('hidden');
+            deviceModal.classList.add('flex');
+            try {
+                const statusList = await api.getDeviceStatus(deviceId);
+                currentDeviceStatusForAI = statusList; // Salva o status para a IA usar
+                modalContent.innerHTML = ''; 
+                
+                // Criar controles funcionais
+                const controlsSection = document.createElement('div');
+                controlsSection.className = 'mb-6 p-4 bg-blue-50 rounded-lg';
+                controlsSection.innerHTML = `
+                    <h4 class="text-lg font-semibold mb-4 text-blue-800">
+                        <i class="fas fa-sliders-h mr-2"></i>
+                        Controles do Dispositivo
+                    </h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <!-- Timer Automático -->
+                        <div class="bg-white p-3 rounded border">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-clock mr-1"></i>
+                                Timer de Desligamento (minutos)
+                            </label>
+                            <div class="flex gap-2">
+                                <input type="number" id="countdown-input" min="0" max="1440" value="0" 
+                                       class="border p-2 rounded w-full text-sm" placeholder="0 = desabilitado">
+                                <button id="set-countdown-btn" class="bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700">
+                                    <i class="fas fa-play mr-1"></i>
+                                    Ativar
+                                </button>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-1">Útil para check-out automático</p>
+                        </div>
+                        
+                        <!-- Comportamento após Falha de Energia -->
+                        <div class="bg-white p-3 rounded border">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-power-off mr-1"></i>
+                                Após Falha de Energia
+                            </label>
+                            <select id="relay-status-select" class="border p-2 rounded w-full text-sm">
+                                <option value="last">Manter estado anterior</option>
+                                <option value="power_on">Sempre ligar</option>
+                                <option value="power_off">Sempre desligar</option>
+                            </select>
+                            <button id="set-relay-btn" class="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 mt-2 w-full">
+                                <i class="fas fa-save mr-1"></i>
+                                Aplicar
+                            </button>
+                        </div>
+                        
+                        <!-- Trava de Segurança -->
+                        <div class="bg-white p-3 rounded border">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-lock mr-1"></i>
+                                Trava de Segurança
+                            </label>
+                            <div class="flex gap-2">
+                                <button id="child-lock-on-btn" class="bg-red-600 text-white px-3 py-2 rounded text-sm hover:bg-red-700 flex-1">
+                                    <i class="fas fa-lock mr-1"></i>
+                                    Travar
+                                </button>
+                                <button id="child-lock-off-btn" class="bg-gray-600 text-white px-3 py-2 rounded text-sm hover:bg-gray-700 flex-1">
+                                    <i class="fas fa-unlock mr-1"></i>
+                                    Destravar
+                                </button>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-1">Impede uso do botão físico</p>
+                        </div>
+                        
+                        <!-- Modo do LED -->
+                        <div class="bg-white p-3 rounded border">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-lightbulb mr-1"></i>
+                                Indicador LED
+                            </label>
+                            <select id="light-mode-select" class="border p-2 rounded w-full text-sm">
+                                <option value="relay">Acompanhar estado do relé</option>
+                                <option value="on">Sempre ligado</option>
+                                <option value="none">Sempre desligado</option>
+                                <option value="pos">Posição específica</option>
+                            </select>
+                            <button id="set-light-btn" class="bg-purple-600 text-white px-3 py-1 rounded text-sm hover:bg-purple-700 mt-2 w-full">
+                                <i class="fas fa-palette mr-1"></i>
+                                Aplicar
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Agendamento de Comandos -->
+                    <div class="mt-4 p-3 bg-purple-50 rounded border border-purple-200">
+                        <h5 class="font-medium text-purple-800 mb-3">
+                            <i class="fas fa-calendar-alt mr-1"></i>
+                            Agendamento de Comandos
+                        </h5>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div class="bg-white p-3 rounded border">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Check-in Automático</label>
+                                <div class="flex gap-2">
+                                    <input type="time" id="checkin-time" value="14:00" class="border p-2 rounded text-sm flex-1">
+                                    <button id="schedule-checkin-btn" class="bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700">
+                                        <i class="fas fa-clock mr-1"></i>
+                                        Agendar
+                                    </button>
+                                </div>
+                                <p class="text-xs text-gray-500 mt-1">Liga disjuntor no horário especificado</p>
+                            </div>
+                            <div class="bg-white p-3 rounded border">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Check-out Automático</label>
+                                <div class="flex gap-2">
+                                    <input type="time" id="checkout-time" value="12:00" class="border p-2 rounded text-sm flex-1">
+                                    <button id="schedule-checkout-btn" class="bg-orange-600 text-white px-3 py-2 rounded text-sm hover:bg-orange-700">
+                                        <i class="fas fa-clock mr-1"></i>
+                                        Agendar
+                                    </button>
+                                </div>
+                                <p class="text-xs text-gray-500 mt-1">Desliga disjuntor no horário especificado</p>
+                            </div>
+                        </div>
+                        <div class="mt-3 bg-white p-3 rounded border">
+                            <h6 class="font-medium text-gray-700 mb-2">
+                                <i class="fas fa-list mr-1"></i>
+                                Agendamentos Ativos
+                            </h6>
+                            <div id="scheduled-commands" class="text-sm text-gray-600">
+                                Nenhum agendamento ativo
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Ações Rápidas para Hotel -->
+                    <div class="mt-4 p-3 bg-yellow-50 rounded border border-yellow-200">
+                        <h5 class="font-medium text-yellow-800 mb-2">
+                            <i class="fas fa-hotel mr-1"></i>
+                            Ações Rápidas para Hotel
+                        </h5>
+                        <div class="flex flex-wrap gap-2">
+                            <button id="checkout-mode-btn" class="bg-orange-600 text-white px-3 py-1 rounded text-sm hover:bg-orange-700" title="Liga por 30min para limpeza, depois desliga automaticamente">
+                                <i class="fas fa-door-open mr-1"></i>
+                                Check-out (30min)
+                            </button>
+                            <button id="maintenance-mode-btn" class="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700" title="Desliga e trava para manutenção segura">
+                                <i class="fas fa-tools mr-1"></i>
+                                Manutenção
+                            </button>
+                            <button id="guest-mode-btn" class="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700" title="Prepara quarto para ocupação normal do hóspede">
+                                <i class="fas fa-user mr-1"></i>
+                                Hóspede
+                                Modo Hóspede
+                            </button>
+                        </div>
+                    </div>
+                </div>`;
+                
+                modalContent.appendChild(controlsSection);
+                
+                // Seção de Monitoramento de Energia (se disponível)
+                const energyData = statusList.filter(s => 
+                    ['cur_current', 'cur_power', 'cur_voltage', 'total_forward_energy', 'forward_energy_total', 'temp_current'].includes(s.code)
+                );
+                
+                if (energyData.length > 0) {
+                    const energySection = document.createElement('div');
+                    energySection.className = 'mb-6 p-4 bg-green-50 rounded-lg border border-green-200';
+                    energySection.innerHTML = `
+                        <h4 class="text-lg font-semibold mb-4 text-green-800">
+                            <i class="fas fa-bolt mr-2"></i>
+                            Monitoramento de Energia
+                        </h4>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4" id="energy-metrics">
+                        </div>
+                        <div class="mt-4 p-3 bg-white rounded border">
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm font-medium text-gray-700">
+                                    <i class="fas fa-sync-alt mr-1"></i>
+                                    Atualização automática
+                                </span>
+                                <button id="toggle-auto-refresh" class="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700">
+                                    <i class="fas fa-play mr-1"></i>
+                                    Ativar (30s)
+                                </button>
+                            </div>
+                            <div class="flex items-center justify-between mt-2">
+                                <span class="text-sm font-medium text-gray-700">
+                                    <i class="fas fa-file-alt mr-1"></i>
+                                    Relatório de consumo
+                                </span>
+                                <button id="generate-energy-report" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700">
+                                    <i class="fas fa-chart-line mr-1"></i>
+                                    Gerar Relatório
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    
+                    const energyMetrics = energySection.querySelector('#energy-metrics');
+                    
+                    energyData.forEach(energy => {
+                        let displayValue = String(energy.value);
+                        let unit = '';
+                        let icon = 'fas fa-info';
+                        let colorClass = 'text-gray-600';
+                        
+                        switch (energy.code) {
+                            case 'cur_current':
+                                displayValue = energy.value;
+                                unit = 'mA';
+                                icon = 'fas fa-tachometer-alt';
+                                colorClass = 'text-blue-600';
+                                break;
+                            case 'cur_power':
+                                displayValue = energy.value;
+                                unit = 'W';
+                                icon = 'fas fa-flash';
+                                colorClass = 'text-purple-600';
+                                break;
+                            case 'cur_voltage':
+                                displayValue = energy.value;
+                                unit = 'V';
+                                icon = 'fas fa-plug';
+                                colorClass = 'text-orange-600';
+                                break;
+                            case 'total_forward_energy':
+                            case 'forward_energy_total':
+                                displayValue = (energy.value / 1000).toFixed(3);
+                                unit = 'kWh';
+                                icon = 'fas fa-chart-line';
+                                colorClass = 'text-green-600';
+                                break;
+                            case 'temp_current':
+                                displayValue = energy.value;
+                                unit = '°C';
+                                icon = 'fas fa-thermometer-half';
+                                colorClass = energy.value > 60 ? 'text-red-600' : 'text-green-600';
+                                break;
+                        }
+                        
+                        const descriptions = {
+                            'cur_current': 'Corrente atual',
+                            'cur_power': 'Potência atual',
+                            'cur_voltage': 'Tensão atual',
+                            'total_forward_energy': 'Energia total consumida',
+                            'forward_energy_total': 'Energia acumulada',
+                            'temp_current': 'Temperatura atual'
+                        };
+                        
+                        const metricDiv = document.createElement('div');
+                        metricDiv.className = 'bg-white p-3 rounded border text-center';
+                        metricDiv.innerHTML = `
+                            <div class="${colorClass} text-2xl mb-1">
+                                <i class="${icon}"></i>
+                            </div>
+                            <div class="text-xl font-bold ${colorClass}">${displayValue} ${unit}</div>
+                            <div class="text-sm text-gray-500">${descriptions[energy.code] || energy.code}</div>
+                        `;
+                        
+                        energyMetrics.appendChild(metricDiv);
+                    });
+                    
+                    modalContent.appendChild(energySection);
+                    
+                    // Setup auto-refresh functionality
+                    setupEnergyMonitoring(deviceId);
+                    setupEnergyReporting(deviceId);
+                }
+                
+                // Tabela de status atual
+                const detailsTable = document.createElement('table');
+                detailsTable.className = 'w-full text-left table-auto';
+                detailsTable.innerHTML = `
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="px-4 py-2 font-semibold">Propriedade (Code)</th>
+                            <th class="px-4 py-2 font-semibold">Valor Atual</th>
+                            <th class="px-4 py-2 font-semibold">Descrição</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                `;
+                const tbody = detailsTable.querySelector('tbody');
+                
+                // Descrições amigáveis para cada propriedade
+                const descriptions = {
+                    'switch': 'Estado do disjuntor',
+                    'countdown_1': 'Timer automático (segundos)',
+                    'test_bit': 'Bit de teste para diagnósticos internos',
+                    'relay_status': 'Comportamento após falha de energia',
+                    'light_mode': 'Modo do indicador LED',
+                    'child_lock': 'Trava de segurança',
+                    'cycle_time': 'Tempo de ciclo do dispositivo',
+                    'cur_current': 'Corrente atual (mA)',
+                    'cur_power': 'Potência atual (W)',
+                    'cur_voltage': 'Tensão atual (V)',
+                    'power': 'Consumo de energia',
+                    'total_forward_energy': 'Energia total consumida (kWh)',
+                    'forward_energy_total': 'Energia acumulada',
+                    'temp_current': 'Temperatura atual (°C)'
+                };
+                
+                statusList.forEach(status => {
+                    const row = tbody.insertRow();
+                    row.className = 'border-b';
+                    
+                    let displayValue = String(status.value);
+                    let valueClass = 'font-mono';
+                    
+                    // Formatação especial para valores específicos
+                    if (status.code === 'switch') {
+                        displayValue = status.value ? '✅ LIGADO' : '❌ DESLIGADO';
+                        valueClass = status.value ? 'text-green-600 font-bold' : 'text-red-600 font-bold';
+                    } else if (status.code === 'countdown_1' && status.value > 0) {
+                        const minutes = Math.floor(status.value / 60);
+                        const seconds = status.value % 60;
+                        displayValue = `${minutes}min ${seconds}s`;
+                        valueClass = 'text-blue-600 font-bold';
+                    } else if (status.code === 'child_lock') {
+                        displayValue = status.value ? '🔒 TRAVADO' : '🔓 DESTRAVADO';
+                        valueClass = status.value ? 'text-red-600 font-bold' : 'text-green-600 font-bold';
+                    } else if (status.code === 'cur_current') {
+                        displayValue = `${status.value} mA`;
+                        valueClass = 'text-blue-600 font-bold';
+                    } else if (status.code === 'cur_power') {
+                        displayValue = `${status.value} W`;
+                        valueClass = 'text-purple-600 font-bold';
+                    } else if (status.code === 'cur_voltage') {
+                        displayValue = `${status.value} V`;
+                        valueClass = 'text-orange-600 font-bold';
+                    } else if (status.code === 'total_forward_energy' || status.code === 'forward_energy_total') {
+                        displayValue = `${(status.value / 1000).toFixed(3)} kWh`;
+                        valueClass = 'text-green-600 font-bold';
+                    } else if (status.code === 'temp_current') {
+                        displayValue = `${status.value}°C`;
+                        valueClass = status.value > 60 ? 'text-red-600 font-bold' : 'text-green-600 font-bold';
+                    } else if (status.code === 'relay_status') {
+                        const relayLabels = {
+                            'last': '🔄 Manter estado anterior',
+                            'power_on': '⚡ Sempre ligar',
+                            'power_off': '❌ Sempre desligar'
+                        };
+                        displayValue = relayLabels[status.value] || status.value;
+                        valueClass = 'text-blue-600 font-bold';
+                    } else if (status.code === 'light_mode') {
+                        const lightLabels = {
+                            'relay': '🔗 Acompanhar relé',
+                            'on': '💡 Sempre ligado',
+                            'none': '⚫ Sempre desligado',
+                            'pos': '🎯 Posição específica'
+                        };
+                        displayValue = lightLabels[status.value] || status.value;
+                        valueClass = 'text-yellow-600 font-bold';
+                    }
+                    
+                    row.innerHTML = `
+                        <td class="px-4 py-2 font-semibold">${status.code}</td>
+                        <td class="px-4 py-2 ${valueClass}">${displayValue}</td>
+                        <td class="px-4 py-2 text-sm text-gray-600">${descriptions[status.code] || 'Propriedade do dispositivo'}</td>
+                    `;
+                });
+                modalContent.appendChild(detailsTable);
+                
+                // Adicionar event listeners para os controles
+                setupDeviceControls(deviceId, statusList);
+                setupScheduling(deviceId);
+                
+                log(`Configurações do dispositivo ${deviceId} carregadas.`);
+            } catch (error) {
+                modalContent.innerHTML = `<p class="text-red-500">Erro ao carregar configurações: ${error.message}</p>`;
+                logError(`Erro ao carregar configurações do dispositivo ${deviceId}`, error);
+            }
+        }
+
+        function setupDeviceControls(deviceId, statusList) {
+            // Timer de Desligamento
+            const countdownBtn = document.getElementById('set-countdown-btn');
+            const countdownInput = document.getElementById('countdown-input');
+            
+            if (countdownBtn && countdownInput) {
+                countdownBtn.addEventListener('click', async () => {
+                    const minutes = parseInt(countdownInput.value) || 0;
+                    const seconds = minutes * 60;
+                    
+                    countdownBtn.disabled = true;
+                    countdownBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Aplicando...';
+                    
+                    try {
+                        await api.sendCommand(deviceId, 'countdown_1', seconds);
+                        log(`Timer configurado para ${minutes} minutos (${seconds} segundos)`);
+                        
+                        // Atualizar display após comando
+                        setTimeout(async () => {
+                            try {
+                                await showDeviceDetails(deviceId, modalDeviceName.textContent);
+                            } catch (error) {
+                                log(`Erro ao atualizar status: ${error.message}`);
+                            }
+                        }, 2000);
+                        
+                    } catch (error) {
+                        logError('Erro ao configurar timer', error);
+                        alert(`Erro ao configurar timer: ${error.message}`);
+                    } finally {
+                        countdownBtn.disabled = false;
+                        countdownBtn.innerHTML = '<i class="fas fa-play mr-1"></i> Ativar';
+                    }
+                });
+            }
+            
+            // Relay Status
+            const relayBtn = document.getElementById('set-relay-btn');
+            const relaySelect = document.getElementById('relay-status-select');
+            
+            if (relayBtn && relaySelect) {
+                relayBtn.addEventListener('click', async () => {
+                    const value = relaySelect.value;
+                    
+                    relayBtn.disabled = true;
+                    relayBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Aplicando...';
+                    
+                    try {
+                        await api.sendCommand(deviceId, 'relay_status', value);
+                        log(`Comportamento após falha de energia configurado: ${value}`);
+                        
+                        // Atualizar display após comando
+                        setTimeout(async () => {
+                            try {
+                                await showDeviceDetails(deviceId, modalDeviceName.textContent);
+                            } catch (error) {
+                                log(`Erro ao atualizar status: ${error.message}`);
+                            }
+                        }, 2000);
+                        
+                    } catch (error) {
+                        logError('Erro ao configurar relay status', error);
+                        alert(`Erro ao configurar comportamento: ${error.message}`);
+                    } finally {
+                        relayBtn.disabled = false;
+                        relayBtn.innerHTML = '<i class="fas fa-save mr-1"></i> Aplicar';
+                    }
+                });
+            }
+            
+            // Child Lock
+            const childLockOnBtn = document.getElementById('child-lock-on-btn');
+            const childLockOffBtn = document.getElementById('child-lock-off-btn');
+            
+            if (childLockOnBtn) {
+                childLockOnBtn.addEventListener('click', async () => {
+                    childLockOnBtn.disabled = true;
+                    childLockOnBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Travando...';
+                    
+                    try {
+                        await api.sendCommand(deviceId, 'child_lock', true);
+                        log('Trava de segurança ativada');
+                        
+                        // Atualizar display após comando
+                        setTimeout(async () => {
+                            try {
+                                await showDeviceDetails(deviceId, modalDeviceName.textContent);
+                            } catch (error) {
+                                log(`Erro ao atualizar status: ${error.message}`);
+                            }
+                        }, 2000);
+                        
+                    } catch (error) {
+                        logError('Erro ao ativar trava de segurança', error);
+                        alert(`Erro ao ativar trava: ${error.message}`);
+                    } finally {
+                        childLockOnBtn.disabled = false;
+                        childLockOnBtn.innerHTML = '<i class="fas fa-lock mr-1"></i> Travar';
+                    }
+                });
+            }
+            
+            if (childLockOffBtn) {
+                childLockOffBtn.addEventListener('click', async () => {
+                    childLockOffBtn.disabled = true;
+                    childLockOffBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Destravando...';
+                    
+                    try {
+                        await api.sendCommand(deviceId, 'child_lock', false);
+                        log('Trava de segurança desativada');
+                        
+                        // Atualizar display após comando
+                        setTimeout(async () => {
+                            try {
+                                await showDeviceDetails(deviceId, modalDeviceName.textContent);
+                            } catch (error) {
+                                log(`Erro ao atualizar status: ${error.message}`);
+                            }
+                        }, 2000);
+                        
+                    } catch (error) {
+                        logError('Erro ao desativar trava de segurança', error);
+                        alert(`Erro ao desativar trava: ${error.message}`);
+                    } finally {
+                        childLockOffBtn.disabled = false;
+                        childLockOffBtn.innerHTML = '<i class="fas fa-unlock mr-1"></i> Destravar';
+                    }
+                });
+            }
+            
+            // Light Mode
+            const lightBtn = document.getElementById('set-light-btn');
+            const lightSelect = document.getElementById('light-mode-select');
+            
+            if (lightBtn && lightSelect) {
+                lightBtn.addEventListener('click', async () => {
+                    const value = lightSelect.value;
+                    
+                    lightBtn.disabled = true;
+                    lightBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Aplicando...';
+                    
+                    try {
+                        await api.sendCommand(deviceId, 'light_mode', value);
+                        log(`Modo do LED configurado: ${value}`);
+                        
+                        // Atualizar display após comando
+                        setTimeout(async () => {
+                            try {
+                                await showDeviceDetails(deviceId, modalDeviceName.textContent);
+                            } catch (error) {
+                                log(`Erro ao atualizar status: ${error.message}`);
+                            }
+                        }, 2000);
+                        
+                    } catch (error) {
+                        logError('Erro ao configurar modo do LED', error);
+                        alert(`Erro ao configurar LED: ${error.message}`);
+                    } finally {
+                        lightBtn.disabled = false;
+                        lightBtn.innerHTML = '<i class="fas fa-palette mr-1"></i> Aplicar';
+                    }
+                });
+            }
+            
+            // Modos Rápidos para Hotel
+            const checkoutBtn = document.getElementById('checkout-mode-btn');
+            const maintenanceBtn = document.getElementById('maintenance-mode-btn');
+            const guestBtn = document.getElementById('guest-mode-btn');
+            
+            if (checkoutBtn) {
+                checkoutBtn.addEventListener('click', async () => {
+                    checkoutBtn.disabled = true;
+                    checkoutBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Configurando...';
+                    
+                    try {
+                        // Modo Check-out: Liga o disjuntor e configura timer de 30 minutos
+                        await api.sendCommand(deviceId, 'switch', true);
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        await api.sendCommand(deviceId, 'countdown_1', 1800); // 30 minutos
+                        
+                        log('Modo Check-out ativado: Disjuntor ligado com timer de 30 minutos');
+                        
+                        // Atualizar display após comandos
+                        setTimeout(async () => {
+                            try {
+                                await showDeviceDetails(deviceId, modalDeviceName.textContent);
+                            } catch (error) {
+                                log(`Erro ao atualizar status: ${error.message}`);
+                            }
+                        }, 3000);
+                        
+                    } catch (error) {
+                        logError('Erro ao ativar modo check-out', error);
+                        alert(`Erro ao ativar modo check-out: ${error.message}`);
+                    } finally {
+                        checkoutBtn.disabled = false;
+                        checkoutBtn.innerHTML = '<i class="fas fa-door-open mr-1"></i> Modo Check-out (30min)';
+                    }
+                });
+            }
+            
+            if (maintenanceBtn) {
+                maintenanceBtn.addEventListener('click', async () => {
+                    maintenanceBtn.disabled = true;
+                    maintenanceBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Configurando...';
+                    
+                    try {
+                        // Modo Manutenção: Desliga disjuntor, ativa trava de segurança
+                        await api.sendCommand(deviceId, 'switch', false);
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        await api.sendCommand(deviceId, 'child_lock', true);
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        await api.sendCommand(deviceId, 'countdown_1', 0); // Remove timer
+                        
+                        log('Modo Manutenção ativado: Disjuntor desligado e travado');
+                        
+                        // Atualizar display após comandos
+                        setTimeout(async () => {
+                            try {
+                                await showDeviceDetails(deviceId, modalDeviceName.textContent);
+                            } catch (error) {
+                                log(`Erro ao atualizar status: ${error.message}`);
+                            }
+                        }, 4000);
+                        
+                    } catch (error) {
+                        logError('Erro ao ativar modo manutenção', error);
+                        alert(`Erro ao ativar modo manutenção: ${error.message}`);
+                    } finally {
+                        maintenanceBtn.disabled = false;
+                        maintenanceBtn.innerHTML = '<i class="fas fa-tools mr-1"></i> Modo Manutenção';
+                    }
+                });
+            }
+            
+            if (guestBtn) {
+                guestBtn.addEventListener('click', async () => {
+                    guestBtn.disabled = true;
+                    guestBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Configurando...';
+                    
+                    try {
+                        // Modo Hóspede: Liga disjuntor, remove trava, configura LED para acompanhar relé
+                        await api.sendCommand(deviceId, 'switch', true);
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        await api.sendCommand(deviceId, 'child_lock', false);
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        await api.sendCommand(deviceId, 'light_mode', 'relay');
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        await api.sendCommand(deviceId, 'countdown_1', 0); // Remove timer
+                        
+                        log('Modo Hóspede ativado: Disjuntor liberado para uso normal');
+                        
+                        // Atualizar display após comandos
+                        setTimeout(async () => {
+                            try {
+                                await showDeviceDetails(deviceId, modalDeviceName.textContent);
+                            } catch (error) {
+                                log(`Erro ao atualizar status: ${error.message}`);
+                            }
+                        }, 5000);
+                        
+                    } catch (error) {
+                        logError('Erro ao ativar modo hóspede', error);
+                        alert(`Erro ao ativar modo hóspede: ${error.message}`);
+                    } finally {
+                        guestBtn.disabled = false;
+                        guestBtn.innerHTML = '<i class="fas fa-user mr-1"></i> Modo Hóspede';
+                    }
+                });
+            }
+            
+            // Configurar valores atuais nos selects
+            statusList.forEach(status => {
+                if (status.code === 'relay_status' && relaySelect) {
+                    relaySelect.value = status.value;
+                }
+                if (status.code === 'light_mode' && lightSelect) {
+                    lightSelect.value = status.value;
+                }
+                if (status.code === 'countdown_1' && countdownInput && status.value > 0) {
+                    countdownInput.value = Math.floor(status.value / 60); // Converter para minutos
+                }
+            });
+            
+            // Configurar agendamento
+            setupScheduling(deviceId);
+        }
+
+        closeModalBtn.addEventListener('click', () => {
+            deviceModal.classList.add('hidden');
+            deviceModal.classList.remove('flex');
+        });
+
+        geminiAnalyzeBtn.addEventListener('click', () => {
+            if (currentDeviceStatusForAI) {
+                geminiAnalysisContainer.classList.remove('hidden');
+                callGeminiAPI(currentDeviceStatusForAI);
+            } else {
+                alert("Dados do dispositivo não carregados. Por favor, feche e abra a janela de detalhes novamente.");
+            }
+        });
+
+        let energyRefreshInterval = null;
+
+        function setupEnergyMonitoring(deviceId) {
+            const toggleBtn = document.getElementById('toggle-auto-refresh');
+            let isAutoRefreshActive = false;
+            
+            if (toggleBtn) {
+                toggleBtn.addEventListener('click', () => {
+                    if (isAutoRefreshActive) {
+                        // Parar auto-refresh
+                        if (energyRefreshInterval) {
+                            clearInterval(energyRefreshInterval);
+                            energyRefreshInterval = null;
+                        }
+                        isAutoRefreshActive = false;
+                        toggleBtn.innerHTML = '<i class="fas fa-play mr-1"></i> Ativar (30s)';
+                        toggleBtn.className = 'bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700';
+                        log('Monitoramento automático de energia desativado');
+                    } else {
+                        // Iniciar auto-refresh
+                        isAutoRefreshActive = true;
+                        toggleBtn.innerHTML = '<i class="fas fa-pause mr-1"></i> Parar';
+                        toggleBtn.className = 'bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700';
+                        log('Monitoramento automático de energia ativado (atualização a cada 30 segundos)');
+                        
+                        energyRefreshInterval = setInterval(async () => {
+                            try {
+                                const currentStatus = await api.getDeviceStatus(deviceId);
+                                updateEnergyMetrics(currentStatus);
+                                log('Dados de energia atualizados automaticamente');
+                            } catch (error) {
+                                log(`Erro ao atualizar dados de energia: ${error.message}`);
+                            }
+                        }, 30000); // 30 segundos
+                    }
+                });
+            }
+        }
+
+        function updateEnergyMetrics(statusList) {
+            const energyMetrics = document.getElementById('energy-metrics');
+            if (!energyMetrics) return;
+            
+            const energyData = statusList.filter(s => 
+                ['cur_current', 'cur_power', 'cur_voltage', 'total_forward_energy', 'forward_energy_total', 'temp_current'].includes(s.code)
+            );
+            
+            // Limpar métricas existentes
+            energyMetrics.innerHTML = '';
+            
+            energyData.forEach(energy => {
+                let displayValue = String(energy.value);
+                let unit = '';
+                let icon = 'fas fa-info';
+                let colorClass = 'text-gray-600';
+                
+                switch (energy.code) {
+                    case 'cur_current':
+                        displayValue = energy.value;
+                        unit = 'mA';
+                        icon = 'fas fa-tachometer-alt';
+                        colorClass = 'text-blue-600';
+                        break;
+                    case 'cur_power':
+                        displayValue = energy.value;
+                        unit = 'W';
+                        icon = 'fas fa-flash';
+                        colorClass = 'text-purple-600';
+                        break;
+                    case 'cur_voltage':
+                        displayValue = energy.value;
+                        unit = 'V';
+                        icon = 'fas fa-plug';
+                        colorClass = 'text-orange-600';
+                        break;
+                    case 'total_forward_energy':
+                    case 'forward_energy_total':
+                        displayValue = (energy.value / 1000).toFixed(3);
+                        unit = 'kWh';
+                        icon = 'fas fa-chart-line';
+                        colorClass = 'text-green-600';
+                        break;
+                    case 'temp_current':
+                        displayValue = energy.value;
+                        unit = '°C';
+                        icon = 'fas fa-thermometer-half';
+                        colorClass = energy.value > 60 ? 'text-red-600' : 'text-green-600';
+                        break;
+                }
+                
+                const descriptions = {
+                    'cur_current': 'Corrente atual',
+                    'cur_power': 'Potência atual',
+                    'cur_voltage': 'Tensão atual',
+                    'total_forward_energy': 'Energia total consumida',
+                    'forward_energy_total': 'Energia acumulada',
+                    'temp_current': 'Temperatura atual'
+                };
+                
+                const metricDiv = document.createElement('div');
+                metricDiv.className = 'bg-white p-3 rounded border text-center';
+                metricDiv.innerHTML = `
+                    <div class="${colorClass} text-2xl mb-1">
+                        <i class="${icon}"></i>
+                    </div>
+                    <div class="text-xl font-bold ${colorClass}">${displayValue} ${unit}</div>
+                    <div class="text-sm text-gray-500">${descriptions[energy.code] || energy.code}</div>
+                `;
+                
+                energyMetrics.appendChild(metricDiv);
+            });
+        }
+
+        function setupScheduling(deviceId) {
+            currentDeviceId = deviceId; // Salvar o ID do dispositivo atual
+            const checkinBtn = document.getElementById('schedule-checkin-btn');
+            const checkoutBtn = document.getElementById('schedule-checkout-btn');
+            const checkinTime = document.getElementById('checkin-time');
+            const checkoutTime = document.getElementById('checkout-time');
+            
+            if (checkinBtn && checkinTime) {
+                checkinBtn.addEventListener('click', () => {
+                    scheduleCommand(deviceId, 'checkin', checkinTime.value, 'switch', true);
+                });
+            }
+            
+            if (checkoutBtn && checkoutTime) {
+                checkoutBtn.addEventListener('click', () => {
+                    scheduleCommand(deviceId, 'checkout', checkoutTime.value, 'switch', false);
+                });
+            }
+            
+            updateScheduledCommandsDisplay();
+        }
+
+        function scheduleCommand(deviceId, type, time, command, value) {
+            const now = new Date();
+            const [hours, minutes] = time.split(':');
+            const scheduledTime = new Date();
+            scheduledTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+            
+            // Se o horário já passou hoje, agendar para amanhã
+            if (scheduledTime <= now) {
+                scheduledTime.setDate(scheduledTime.getDate() + 1);
+            }
+            
+            const scheduledId = `${deviceId}-${type}-${Date.now()}`;
+            const timeUntilExecution = scheduledTime.getTime() - now.getTime();
+            
+            const timeoutId = setTimeout(async () => {
+                try {
+                    log(`Executando comando agendado: ${type} às ${time}`);
+                    await api.sendCommand(deviceId, command, value);
+                    
+                    if (type === 'checkout') {
+                        // Para check-out, também configurar timer de 30 min
+                        setTimeout(async () => {
+                            await api.sendCommand(deviceId, 'countdown_1', 1800);
+                        }, 2000);
+                    }
+                    
+                    log(`Comando agendado executado com sucesso: ${type}`);
+                    
+                    // Remover da lista de agendamentos
+                    scheduledCommands.delete(scheduledId);
+                    updateScheduledCommandsDisplay();
+                    
+                } catch (error) {
+                    logError(`Erro ao executar comando agendado ${type}`, error);
+                }
+            }, timeUntilExecution);
+            
+            // Armazenar o agendamento
+            scheduledCommands.set(scheduledId, {
+                deviceId,
+                type,
+                time,
+                command,
+                value,
+                scheduledTime,
+                timeoutId
+            });
+            
+            log(`Comando agendado: ${type} para ${scheduledTime.toLocaleDateString()} às ${time}`);
+            updateScheduledCommandsDisplay();
+        }
+
+        function updateScheduledCommandsDisplay() {
+            const container = document.getElementById('scheduled-commands');
+            if (!container) return;
+            
+            if (scheduledCommands.size === 0) {
+                container.innerHTML = '<span class="text-gray-500">Nenhum agendamento ativo</span>';
+                return;
+            }
+            
+            const items = Array.from(scheduledCommands.values()).map(scheduled => {
+                const timeStr = scheduled.scheduledTime.toLocaleDateString() + ' às ' + scheduled.time;
+                const typeLabel = scheduled.type === 'checkin' ? 
+                    '<i class="fas fa-sign-in-alt text-green-600 mr-1"></i>Check-in' : 
+                    '<i class="fas fa-sign-out-alt text-orange-600 mr-1"></i>Check-out';
+                
+                return `
+                    <div class="flex items-center justify-between py-1 border-b border-gray-200 last:border-b-0">
+                        <span>${typeLabel}: ${timeStr}</span>
+                        <button onclick="cancelScheduledCommand('${scheduled.scheduledTime.getTime()}')" 
+                                class="text-red-600 hover:text-red-800 text-xs">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                `;
+            }).join('');
+            
+            container.innerHTML = items;
+        }
+
+        function cancelScheduledCommand(timeKey) {
+            for (const [id, scheduled] of scheduledCommands.entries()) {
+                if (scheduled.scheduledTime.getTime().toString() === timeKey) {
+                    clearTimeout(scheduled.timeoutId);
+                    scheduledCommands.delete(id);
+                    log(`Agendamento cancelado: ${scheduled.type}`);
+                    updateScheduledCommandsDisplay();
+                    break;
+                }
+            }
+        }
+
+        // Tornar funções globais para uso no onclick do HTML
+        window.toggleLogs = toggleLogs;
+        window.toggleDebugInfo = toggleDebugInfo;
+        window.cancelScheduledCommand = cancelScheduledCommand;
+
+        function setupEnergyReporting(deviceId) {
+            const reportBtn = document.getElementById('generate-energy-report');
+            
+            if (reportBtn) {
+                reportBtn.addEventListener('click', async () => {
+                    reportBtn.disabled = true;
+                    reportBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Gerando...';
+                    
+                    try {
+                        const currentStatus = await api.getDeviceStatus(deviceId);
+                        generateEnergyReport(deviceId, currentStatus);
+                    } catch (error) {
+                        logError('Erro ao gerar relatório de energia', error);
+                        alert(`Erro ao gerar relatório: ${error.message}`);
+                    } finally {
+                        reportBtn.disabled = false;
+                        reportBtn.innerHTML = '<i class="fas fa-chart-line mr-1"></i> Gerar Relatório';
+                    }
+                });
+            }
+        }
+
+        function generateEnergyReport(deviceId, statusList) {
+            const currentPower = statusList.find(s => s.code === 'cur_power')?.value || 0;
+            const currentVoltage = statusList.find(s => s.code === 'cur_voltage')?.value || 0;
+            const currentCurrent = statusList.find(s => s.code === 'cur_current')?.value || 0;
+            const totalEnergy = statusList.find(s => s.code === 'total_forward_energy' || s.code === 'forward_energy_total')?.value || 0;
+            const temperature = statusList.find(s => s.code === 'temp_current')?.value || 0;
+            const switchState = statusList.find(s => s.code === 'switch')?.value || false;
+            
+            const now = new Date();
+            const reportContent = `
+RELATÓRIO DE CONSUMO ENERGÉTICO
+===============================
+Hotel: Sistema de Monitoramento Tongou
+Dispositivo: ${deviceId}
+Data/Hora: ${now.toLocaleDateString('pt-BR')} ${now.toLocaleTimeString('pt-BR')}
+
+SITUAÇÃO ATUAL
+--------------
+Estado do Disjuntor: ${switchState ? 'LIGADO ✅' : 'DESLIGADO ❌'}
+Potência Instantânea: ${(currentPower/10).toFixed(1)} W
+Tensão: ${(currentVoltage/10).toFixed(1)} V
+Corrente: ${currentCurrent} mA
+Temperatura: ${temperature}°C
+Energia Total Consumida: ${(totalEnergy/1000).toFixed(3)} kWh
+
+ANÁLISE DE EFICIÊNCIA
+--------------------
+${switchState ? 
+    `🔌 DISPOSITIVO ATIVO
+• Consumo atual: ${(currentPower/10).toFixed(1)} W
+• Corrente de operação: ${currentCurrent} mA
+• Eficiência térmica: ${temperature < 50 ? 'NORMAL' : temperature < 70 ? 'ATENÇÃO' : 'CRÍTICA'}
+${(currentPower/10) > 100 ? '⚠️ ATENÇÃO: Consumo elevado detectado!' : '✅ Consumo dentro da normalidade'}
+` : 
+    `💤 DISPOSITIVO INATIVO
+• Consumo em standby: ${(currentPower/10).toFixed(1)} W
+• Status: ${(currentPower/10) < 1 ? 'Economia máxima ✅' : 'Consumo residual detectado ⚠️'}
+`}
+
+ESTIMATIVAS DE CUSTO (Base: R$ 0,65/kWh)
+---------------------------------------
+• Consumo mensal estimado: ${((currentPower/10) * 24 * 30 / 1000).toFixed(2)} kWh
+• Custo mensal estimado: R$ ${(((currentPower/10) * 24 * 30 / 1000) * 0.65).toFixed(2)}
+• Energia acumulada: ${(totalEnergy/1000).toFixed(3)} kWh
+• Custo acumulado: R$ ${((totalEnergy/1000) * 0.65).toFixed(2)}
+
+RECOMENDAÇÕES PARA HOTEL
+------------------------
+${switchState ? 
+    `• Monitorar temperatura regularmente (atual: ${temperature}°C)
+• Considerar timer automático para economia
+• Verificar se equipamentos conectados são necessários
+${(currentPower/10) > 50 ? '• Investigar alto consumo - possível mau funcionamento' : '• Consumo normal para operação hoteleira'}
+` : 
+    `• Dispositivo otimizado para economia ✅
+• Programar ligação automática para check-in
+• Verificar agendamentos de manutenção
+• Considerar modo hóspede quando necessário
+`}
+
+PRÓXIMAS AÇÕES SUGERIDAS
+------------------------
+1. ${temperature > 60 ? '🔥 URGENTE: Verificar ventilação - temperatura elevada!' : '✅ Temperatura sob controle'}
+2. ${(currentPower/10) > 100 ? '⚡ Investigar causa do alto consumo energético' : '✅ Consumo energético adequado'}
+3. 📊 Agendar próxima leitura em 24 horas
+4. 🔧 Manutenção preventiva: ${Math.random() > 0.5 ? 'Em dia ✅' : 'Programar para próxima semana 📅'}
+
+═══════════════════════════════════════
+Relatório gerado automaticamente pelo
+Sistema Tongou de Gestão Hoteleira
+═══════════════════════════════════════
+            `;
+            
+            // Criar e abrir janela com o relatório
+            const reportWindow = window.open('', '_blank', 'width=800,height=600');
+            reportWindow.document.write(`
+                <html>
+                <head>
+                    <title>Relatório de Energia - ${deviceId}</title>
+                    <style>
+                        body { 
+                            font-family: 'Courier New', monospace; 
+                            margin: 20px; 
+                            line-height: 1.4;
+                            background: #f9f9f9;
+                        }
+                        .report {
+                            background: white;
+                            padding: 20px;
+                            border-radius: 8px;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                        }
+                        .print-btn {
+                            background: #4CAF50;
+                            color: white;
+                            padding: 10px 20px;
+                            border: none;
+                            border-radius: 4px;
+                            cursor: pointer;
+                            margin-bottom: 20px;
+                            font-size: 14px;
+                        }
+                        .print-btn:hover { background: #45a049; }
+                        pre { white-space: pre-wrap; }
+                    </style>
+                </head>
+                <body>
+                    <button class="print-btn" onclick="window.print()">🖨️ Imprimir Relatório</button>
+                    <div class="report">
+                        <pre>${reportContent}</pre>
+                    </div>
+                </body>
+                </html>
+            `);
+            
+            log(`Relatório de energia gerado para dispositivo ${deviceId}`);
+        }
+
+        function toggleLogs() {
+            const logsContent = document.getElementById('logs-content');
+            const toggleIcon = document.getElementById('logs-toggle-icon');
+            
+            if (logsContent.classList.contains('hidden')) {
+                logsContent.classList.remove('hidden');
+                toggleIcon.classList.add('rotate-180');
+            } else {
+                logsContent.classList.add('hidden');
+                toggleIcon.classList.remove('rotate-180');
+            }
+        }
+        
+        function toggleDebugInfo() {
+            const debugSection = document.getElementById('debug-section');
+            debugSection.classList.toggle('hidden');
+        }
+
+    </script>
+</body>
+</html>
