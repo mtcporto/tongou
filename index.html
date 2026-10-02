@@ -137,6 +137,8 @@
                         <!-- Conteúdo do modal será inserido aqui -->
                     </div>
                     <div class="mt-6">
+                        <label for="gemini-api-key" class="block mb-2">Sua chave Gemini (usada somente nesta página)</label>
+                        <input id="gemini-api-key" type="password" autocomplete="off" spellcheck="false" class="w-full border rounded p-2 mb-3" />
                         <button id="gemini-analyze-btn" class="w-full bg-gradient-to-r from-purple-500 to-indigo-600 text-white font-bold py-2 px-4 rounded-md hover:opacity-90 transition">
                             <i class="fas fa-brain mr-2"></i>
                             Analisar com IA
@@ -246,6 +248,10 @@
 
         // --- LÓGICA DA API (GEMINI) ---
         async function callGeminiAPI(deviceStatus) {
+            if (!document.getElementById("gemini-api-key").value.trim()) {
+                alert("Informe sua chave Gemini para usar a análise de IA.");
+                return;
+            }
             log("Chamando a API do Gemini para análise...");
             geminiLoader.classList.remove('hidden');
             geminiAnalysisResult.classList.add('hidden');
@@ -311,7 +317,7 @@ Por favor, forneça:
 Foque na economia de energia e experiência do hóspede.`;
             }
 
-            const apiKey = "AIzaSyBpsHt2ALOIDOYrN08GhiUQaIe7Sfom734"; // Substitua pela sua chave do Gemini
+            const apiKey = document.getElementById("gemini-api-key").value.trim();
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`;
             
             const payload = {
@@ -340,7 +346,8 @@ Foque na economia de energia e experiência do hóspede.`;
                 const result = await response.json();
                 const text = result.candidates[0].content.parts[0].text;
                 
-                geminiAnalysisResult.innerHTML = `<div class="whitespace-pre-wrap">${text}</div>`;
+                geminiAnalysisResult.textContent = text;
+                geminiAnalysisResult.classList.add("whitespace-pre-wrap");
                 log("Análise do Gemini recebida com sucesso.");
 
             } catch (error) {
